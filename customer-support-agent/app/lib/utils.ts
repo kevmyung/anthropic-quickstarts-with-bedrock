@@ -3,19 +3,36 @@ import {
   RetrieveCommand,
   RetrieveCommandInput,
 } from "@aws-sdk/client-bedrock-agent-runtime";
+import { BedrockRuntimeClient } from "@aws-sdk/client-bedrock-runtime";
 import { type ClassValue, clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
 
 console.log("🔑 Have AWS AccessKey?", !!process.env.BAWS_ACCESS_KEY_ID);
 console.log("🔑 Have AWS Secret?", !!process.env.BAWS_SECRET_ACCESS_KEY);
 
-const bedrockClient = new BedrockAgentRuntimeClient({
-  region: "us-east-1", // Make sure this matches your Bedrock region
-  credentials: {
-    accessKeyId: process.env.BAWS_ACCESS_KEY_ID!,
-    secretAccessKey: process.env.BAWS_SECRET_ACCESS_KEY!,
-  },
-});
+export function createBedrockAgentClient(region: string) {
+  return new BedrockAgentRuntimeClient({
+    region: region,
+    credentials: process.env.BAWS_ACCESS_KEY_ID && process.env.BAWS_SECRET_ACCESS_KEY
+      ? {
+          accessKeyId: process.env.BAWS_ACCESS_KEY_ID,
+          secretAccessKey: process.env.BAWS_SECRET_ACCESS_KEY,
+        }
+      : undefined,
+  });
+}
+
+export function createBedrockClient(region: string) {
+  return new BedrockRuntimeClient({
+    region: region,
+    credentials: process.env.BAWS_ACCESS_KEY_ID && process.env.BAWS_SECRET_ACCESS_KEY
+      ? {
+          accessKeyId: process.env.BAWS_ACCESS_KEY_ID,
+          secretAccessKey: process.env.BAWS_SECRET_ACCESS_KEY,
+        }
+      : undefined,
+  });
+}
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -28,10 +45,12 @@ export interface RAGSource {
   score: number;
 }
 
+
 export async function retrieveContext(
   query: string,
   knowledgeBaseId: string,
   n: number = 3,
+  bedrockClient: BedrockAgentRuntimeClient
 ): Promise<{
   context: string;
   isRagWorking: boolean;
@@ -47,6 +66,8 @@ export async function retrieveContext(
       };
     }
 
+    console.log(`🔍 Querying knowledge base: ${knowledgeBaseId} with query: "${query}"`);
+
     const input: RetrieveCommandInput = {
       knowledgeBaseId: knowledgeBaseId,
       retrievalQuery: { text: query },
@@ -60,6 +81,16 @@ export async function retrieveContext(
 
     // Parse results
     const rawResults = response?.retrievalResults || [];
+
+    if (rawResults.length === 0) {
+      console.log("⚠️ No results returned from Bedrock");
+      return {
+        context: "",
+        isRagWorking: true,  // The RAG system is working, just no results
+        ragSources: [],
+      };
+    }
+
     const ragSources: RAGSource[] = rawResults
       .filter((res: any) => res.content && res.content.text)
       .map((result: any, index: number) => {
@@ -73,15 +104,16 @@ export async function retrieveContext(
           snippet: result.content?.text || "",
           score: result.score || 0,
         };
-      })
-      .slice(0, 1);
+      });
 
-    console.log("🔍 Parsed RAG Sources:", ragSources); // Debug log
+    console.log("🔍 Parsed RAG Sources:", ragSources);
 
     const context = rawResults
       .filter((res: any) => res.content && res.content.text)
       .map((res: any) => res.content.text)
       .join("\n\n");
+
+    console.log("📄 Retrieved Context:", context);
 
     return {
       context,
@@ -90,6 +122,10 @@ export async function retrieveContext(
     };
   } catch (error) {
     console.error("RAG Error:", error);
+    if (error instanceof Error) {
+      console.error("Error message:", error.message);
+      console.error("Error stack:", error.stack);
+    }
     return { context: "", isRagWorking: false, ragSources: [] };
   }
 }

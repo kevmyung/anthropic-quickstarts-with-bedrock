@@ -196,6 +196,11 @@ type Model = {
   name: string;
 };
 
+type Region = {
+  id: string;
+  name: string;
+};
+
 interface Message {
   id: string;
   role: string;
@@ -211,11 +216,19 @@ interface ConversationHeaderProps {
   selectedKnowledgeBase: string;
   setSelectedKnowledgeBase: (knowledgeBaseId: string) => void;
   knowledgeBases: KnowledgeBase[];
+  selectedRegion: string;
+  setSelectedRegion: (regionId: string) => void;
+  regions: Region[];
 }
+
+type KnowledgeBaseStatus = "CREATING" | "ACTIVE" | "DELETING" | "UPDATING" | "FAILED" | "DELETE_UNSUCCESSFUL";
 
 type KnowledgeBase = {
   id: string;
   name: string;
+  description?: string;
+  status: KnowledgeBaseStatus;
+  updatedAt: Date;
 };
 
 const ConversationHeader: React.FC<ConversationHeaderProps> = ({
@@ -226,45 +239,49 @@ const ConversationHeader: React.FC<ConversationHeaderProps> = ({
   selectedKnowledgeBase,
   setSelectedKnowledgeBase,
   knowledgeBases,
+  selectedRegion,
+  setSelectedRegion,
+  regions,
 }) => (
-  <div className="p-0 flex flex-col sm:flex-row items-start sm:items-center justify-between pb-2 animate-fade-in">
-    <div className="flex items-center space-x-4 mb-2 sm:mb-0">
-      {showAvatar && (
-        <>
-          <Avatar className="w-10 h-10 border">
-            <AvatarImage
-              src="/ant-logo.svg"
-              alt="AI Assistant Avatar"
-              width={40}
-              height={40}
-            />
-            <AvatarFallback>AI</AvatarFallback>
-          </Avatar>
-          <div>
-            <h3 className="text-sm font-medium leading-none">AI Agent</h3>
-            <p className="text-sm text-muted-foreground">Customer support</p>
-          </div>
-        </>
-      )}
-    </div>
-    <div className="flex space-x-2 w-full sm:w-auto">
+  <div className="p-0 flex items-center justify-between pb-2 animate-fade-in">
+    {showAvatar && (
+      <div className="flex items-center space-x-4">
+        <Avatar className="w-10 h-10 border">
+          <AvatarImage src="/ant-logo.svg" alt="AI Assistant Avatar" width={40} height={40} />
+          <AvatarFallback>AI</AvatarFallback>
+        </Avatar>
+        <div>
+          <h3 className="text-sm font-medium leading-none">AI Agent</h3>
+          <p className="text-sm text-muted-foreground">Customer support</p>
+        </div>
+      </div>
+    )}
+    <div className="flex space-x-2">
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button
-            variant="outline"
-            size="sm"
-            className="flex-grow text-muted-foreground sm:flex-grow-0"
-          >
+          <Button variant="outline" size="sm" className="text-muted-foreground">
+            {regions.find((r) => r.id === selectedRegion)?.name || "Select Region"}
+            <ChevronDown className="ml-2 h-4 w-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent>
+          {regions.map((region) => (
+            <DropdownMenuItem key={region.id} onSelect={() => setSelectedRegion(region.id)}>
+              {region.name}
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="outline" size="sm" className="text-muted-foreground">
             {models.find((m) => m.id === selectedModel)?.name}
             <ChevronDown className="ml-2 h-4 w-4" />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent>
           {models.map((model) => (
-            <DropdownMenuItem
-              key={model.id}
-              onSelect={() => setSelectedModel(model.id)}
-            >
+            <DropdownMenuItem key={model.id} onSelect={() => setSelectedModel(model.id)}>
               {model.name}
             </DropdownMenuItem>
           ))}
@@ -272,23 +289,15 @@ const ConversationHeader: React.FC<ConversationHeaderProps> = ({
       </DropdownMenu>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button
-            variant="outline"
-            size="sm"
-            className="flex-grow text-muted-foreground  sm:flex-grow-0"
-          >
-            {knowledgeBases.find((kb) => kb.id === selectedKnowledgeBase)
-              ?.name || "Select KB"}
+          <Button variant="outline" size="sm" className="text-muted-foreground">
+            {knowledgeBases.find((kb) => kb.id === selectedKnowledgeBase)?.name || "Select KB"}
             <ChevronDown className="ml-2 h-4 w-4" />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent>
           {knowledgeBases.map((kb) => (
-            <DropdownMenuItem
-              key={kb.id}
-              onSelect={() => setSelectedKnowledgeBase(kb.id)}
-            >
-              {kb.name}
+            <DropdownMenuItem key={kb.id} onSelect={() => setSelectedKnowledgeBase(kb.id)}>
+              {kb.name} ({kb.status})
             </DropdownMenuItem>
           ))}
         </DropdownMenuContent>
@@ -302,26 +311,64 @@ function ChatArea() {
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [showHeader, setShowHeader] = useState(false);
-  const [selectedModel, setSelectedModel] = useState("claude-3-haiku-20240307");
+  const [selectedModel, setSelectedModel] = useState("anthropic.claude-3-haiku-20240307-v1:0");
   const [showAvatar, setShowAvatar] = useState(false);
+  const [selectedRegion, setSelectedRegion] = useState("us-west-2");
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const [selectedKnowledgeBase, setSelectedKnowledgeBase] = useState(
-    "your-knowledge-base-id",
-  );
+  const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBase[]>([]);
+  const [selectedKnowledgeBase, setSelectedKnowledgeBase] = useState("");
 
-  const knowledgeBases: KnowledgeBase[] = [
-    { id: "your-knowledge-base-id", name: "Your KB Name" },
-    // Add more knowledge bases as needed
+  useEffect(() => {
+    fetchKnowledgeBases();
+  }, [selectedRegion]);
+
+  const regions = [
+    { id: "us-east-1", name: "US East (N. Virginia)" },
+    { id: "us-west-2", name: "US West (Oregon)" },
+    { id: "ap-northeast-1", name: "Asia (Tokyo)" },
+    { id: "eu-central-1", name: "Europe (Frankfurt)" },
   ];
 
   const models: Model[] = [
-    { id: "claude-3-haiku-20240307", name: "Claude 3 Haiku" },
-    { id: "claude-3-5-sonnet-20240620", name: "Claude 3.5 Sonnet" },
+    { id: "anthropic.claude-3-haiku-20240307-v1:0", name: "Claude 3 Haiku" },
+    { id: "anthropic.claude-3-5-sonnet-20240620-v1:0", name: "Claude 3.5 Sonnet" },
+    { id: "anthropic.claude-3-opus-20240229-v1:0", name: "Claude 3 Opus" },
   ];
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
+
+  const fetchKnowledgeBases = async () => {
+    try {
+      console.log(`Fetching knowledge bases for region: ${selectedRegion}`);
+      const response = await fetch(`/api/knowledgebases?region=${selectedRegion}`);
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      const data = await response.json();
+  
+      const kbs: KnowledgeBase[] = data.map((kb: any) => ({
+        id: kb.id,
+        name: kb.name,
+        description: kb.description,
+        status: kb.status as KnowledgeBaseStatus,
+        updatedAt: new Date(kb.updatedAt)
+      }));
+  
+      setKnowledgeBases(kbs);
+      if (kbs.length > 0) {
+        setSelectedKnowledgeBase(kbs[0].id);
+      }
+      console.log("Processed knowledge bases:", kbs);
+    } catch (error) {
+      console.error("Error fetching knowledge bases:", error);
+      if (error instanceof Error) {
+        console.error("Error details:", error.message);
+      }
+      setKnowledgeBases([]);
+    }
   };
 
   useEffect(() => {
@@ -450,6 +497,7 @@ function ChatArea() {
           messages: [...messages, userMessage],
           model: selectedModel,
           knowledgeBaseId: selectedKnowledgeBase,
+          region: selectedRegion,
         }),
       });
 
@@ -582,7 +630,12 @@ function ChatArea() {
           selectedKnowledgeBase={selectedKnowledgeBase}
           setSelectedKnowledgeBase={setSelectedKnowledgeBase}
           knowledgeBases={knowledgeBases}
+          selectedRegion={selectedRegion}
+          setSelectedRegion={setSelectedRegion}
+          regions={regions}
         />
+
+        {/* 메시지 UI 렌더링 */}
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
           {messages.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full animate-fade-in-up">
@@ -674,6 +727,7 @@ function ChatArea() {
           )}
         </div>
       </CardContent>
+
 
       <CardFooter className="p-4 pt-0">
         <form

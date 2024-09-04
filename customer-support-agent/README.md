@@ -1,7 +1,6 @@
-# Claude Customer Support Agent
+# AWS Bedrock Quickstarts (Modified from Anthropic Quickstarts)
 
-An advanced, fully customizable customer support chat interface powered by Claude and leveraging Amazon Bedrock Knowledge Bases for knowledge retrieval.
-![preview](tutorial/preview.png)
+This repository is a fork of Anthropic Quickstarts, modified to use AWS Bedrock instead of the Anthropic API. The core structure and functionality remain similar to the original Anthropic quickstarts, but we've adapted the API calls to work with AWS Bedrock.
 
 ## Key Features
 
@@ -12,59 +11,48 @@ An advanced, fully customizable customer support chat interface powered by Claud
 -  User mood detection & appropriate agent redirection
 -  Highly customizable UI with shadcn/ui components
 
-##  Getting Started
+## General Usage
+
+Each quickstart project comes with its own README and setup instructions. Generally, you'll follow these steps:
 
 1. Clone this repository
-2. Install dependencies: `npm install`
-3. Set up your environment variables (see Configuration section)
-4. Run the development server: `npm run dev`
-5. Open [http://localhost:3000](http://localhost:3000) in your browser
+2. Navigate to the specific quickstart directory
+3. Install the required dependencies
+4. Set up your AWS credentials (see below)
+5. Run the quickstart application
 
 ## ⚙️ Configuration
 
-Create a `.env.local` file in the root directory with the following variables:
+This project supports two methods for AWS credential management:
 
-```
-ANTHROPIC_API_KEY=your_anthropic_api_key
-BAWS_ACCESS_KEY_ID=your_aws_access_key
-BAWS_SECRET_ACCESS_KEY=your_aws_secret_key
-```
+1. AWS Profile: If you don't provide a `.env` file, the application will attempt to use the AWS credentials configured in your system's default profile.
 
-Note: We are adding a 'B' in front of the AWS environment variables for a reason that will be discussed later the the deployment section.
+2. Environment Variables: Create a `.env` file in the project root and add your AWS access key, secret key, and preferred region:
+```AWS_ACCESS_KEY_ID=your_access_key AWS_SECRET_ACCESS_KEY=your_secret_key AWS_DEFAULT_REGION=your_preferred_region```
 
-##  How to Get Your Keys
+## How to Get Your Keys
 
-### Anthropic API Key
-
-1. Visit [console.anthropic.com](https://console.anthropic.com/dashboard)
-2. Sign up or log in to your account
-3. Click on "Get API keys"
-4. Copy the key and paste it into your `.env.local` file
-
-### AWS Access Key and Secret Key
+### AWS Access Key and Secret Key (if you choose option 2 in AWS Credential Setup)
 
 Follow these steps to obtain your AWS credentials:
 
 1. Log in to the AWS Management Console
 2. Navigate to the IAM (Identity and Access Management) dashboard
-
 3. In the left sidebar, click on "Users"
-
 4. Click "Create user" and follow the prompts to create a new user
-   ![Add User](tutorial/create-user.png)
+   ![Add User](/tutorial/create-user.png)
 5. On the Set Permission page, select the "Attach policies directly" policy
-   ![Attach Policy](tutorial/aws-attach-policy.png)
-5. On the permissions page, use the "AmazonBedrockFullAccess" policy
-   ![Attach Policy](tutorial/bedrock.png)
-6. Review and create the user
-7. On the Summary page, click on Create access key.
-8. Then select "Application running on an AWS compute service". Add a description if desired, then click "Create".
-9. You will now see the Access Key ID and Secret Access Key displayed. Note that these keys are only visible once during creation, so be sure to save them securely.
-   ![Access Keys](tutorial/access-keys.png)
-8. Copy these keys and paste them into your `.env.local` file
+   ![Attach Policy](/tutorial/aws-attach-policy.png)
+6. On the permissions page, use the "AmazonBedrockFullAccess" policy
+   ![Attach Policy](/tutorial/bedrock.png)
+7. Review and create the user
+8. On the Summary page, click on Create access key
+9. Then select "Application running on an AWS compute service". Add a description if desired, then click "Create"
+10. You will now see the Access Key ID and Secret Access Key displayed. Note that these keys are only visible once during creation, so be sure to save them securely
+    ![Access Keys](/tutorial/access-keys.png)
+11. Copy these keys and paste them into your `.env.local` file
 
 Note: Make sure to keep your keys secure and never share them publicly.
-
 
 ##  AWS Bedrock RAG Integration
 
@@ -73,14 +61,6 @@ This project utilizes AWS Bedrock for Retrieval-Augmented Generation (RAG). To s
 1. Ensure you have an AWS account with Bedrock access.
 2. Create a Bedrock knowledge base in your desired AWS region.
 3. Index your documents/sources in the knowledge base. For more info on that, check the "How to Create Your Own Knowledge Base" section.
-4. In `ChatArea.tsx`, update the `knowledgeBases` array with your knowledge base IDs and names:
-
-```typescript
-const knowledgeBases: KnowledgeBase[] = [
-  { id: "your-knowledge-base-id", name: "Your KB Name" },
-  // Add more knowledge bases as needed
-];
-```
 
 The application will use these knowledge bases for context retrieval during conversations.
 
@@ -167,40 +147,27 @@ To deploy this application using AWS Amplify, follow these steps:
 5. Edit the YAML file to contain:
 
    ```yaml
-   version: 1
-   frontend:
-     phases:
-       preBuild:
-         commands:
-           - npm ci --cache .npm --prefer-offline
-       build:
-         commands:
-           - npm run build # Next.js build runs first
-           - echo "ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY" >> .env
-           - echo "KNOWLEDGE_BASE_ID=$KNOWLEDGE_BASE_ID" >> .env
-           - echo "BAWS_ACCESS_KEY_ID=$BAWS_ACCESS_KEY_ID" >> .env
-           - echo "BAWS_SECRET_ACCESS_KEY=$BAWS_SECRET_ACCESS_KEY" >> .env
-     artifacts:
-       baseDirectory: .next
-       files:
-         - "**/*"
-     cache:
-       paths:
-         - .next/cache/**/*
-         - .npm/**/*
+    version: 1
+    frontend:
+      phases:
+        preBuild:
+          commands:
+            - npm ci --cache .npm --prefer-offline
+        build:
+          commands:
+            - npm run build
+      artifacts:
+        baseDirectory: .next
+        files:
+          - "**/*"
+      cache:
+        paths:
+          - .next/cache/**/*
+          - .npm/**/*
    ```
 
 6. Choose to create a new service role or use an existing one. Refer to the "Service Role" section for more information.
-7. Click on "Advanced settings" and add your environmental variables:
-
-   ```
-   ANTHROPIC_API_KEY=your_anthropic_api_key
-   BAWS_ACCESS_KEY_ID=your_aws_access_key
-   BAWS_SECRET_ACCESS_KEY=your_aws_secret_key
-   ```
-   The reason we are adding a 'B' in front of the keys here is because AWS doesn't allow keys in Amplify to start with "AWS".
-
-8. Click "Save and deploy" to start the deployment process.
+7. Click "Save and deploy" to start the deployment process.
 
 Your application will now be deployed using AWS Amplify.
 
