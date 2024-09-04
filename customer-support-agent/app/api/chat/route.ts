@@ -200,7 +200,7 @@ export async function POST(req: Request) {
     // Replace newlines within string values
     const sanitized = jsonString.replace(/(?<=:\s*")(.|\n)*?(?=")/g, match => 
       match.replace(/\n/g, "\\n")
-    );
+    )
   
     try {
       return JSON.parse(sanitized);

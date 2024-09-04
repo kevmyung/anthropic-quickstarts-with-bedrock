@@ -1,5 +1,5 @@
 "use client";
-
+import { v4 as uuidv4 } from "uuid";
 import { useEffect, useRef, useState } from "react";
 import config from "@/config";
 import { Button } from "@/components/ui/button";
@@ -348,7 +348,8 @@ function ChatArea() {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
       const data = await response.json();
-  
+      console.log("Raw data received from server:", data);
+
       const kbs: KnowledgeBase[] = data.map((kb: any) => ({
         id: kb.id,
         name: kb.name,
@@ -356,7 +357,7 @@ function ChatArea() {
         status: kb.status as KnowledgeBaseStatus,
         updatedAt: new Date(kb.updatedAt)
       }));
-  
+
       setKnowledgeBases(kbs);
       if (kbs.length > 0) {
         setSelectedKnowledgeBase(kbs[0].id);
@@ -459,13 +460,13 @@ function ChatArea() {
     console.log("🔄 Starting request: " + new Date().toISOString());
 
     const userMessage = {
-      id: crypto.randomUUID(),
+      id: uuidv4(),
       role: "user",
       content: typeof event === "string" ? event : input,
     };
 
     const placeholderMessage = {
-      id: crypto.randomUUID(),
+      id: uuidv4(),
       role: "assistant",
       content: JSON.stringify({
         response: "",
@@ -550,7 +551,7 @@ function ChatArea() {
         const newMessages = [...prevMessages];
         const lastIndex = newMessages.length - 1;
         newMessages[lastIndex] = {
-          id: crypto.randomUUID(),
+          id: uuidv4(),
           role: "assistant",
           content: JSON.stringify(data),
         };
