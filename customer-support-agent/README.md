@@ -2,9 +2,15 @@
 
 This repository is a fork of Anthropic Quickstarts, modified to use AWS Bedrock instead of the Anthropic API. The core structure and functionality remain similar to the original Anthropic quickstarts, but we've adapted the API calls to work with AWS Bedrock.
 
+### Key modifications include:
+- **Replacing Anthropic API calls with AWS Bedrock API calls**
+- **Adding AWS region selection functionality**
+- **Implementing AWS credential management using .env files or server profiles**
+- **List the available KnowledgeBase using API call (ListKnowledgeBases) and displaying them in a dropdown menu**
+
 ## Key Features
 
--  AI-powered chat using Anthropic's Claude model
+-  AI-powered chat using Claude model on Amazon Bedrock
 -  Amazong Bedrock integration for contextual knowledge retrieval
 -  Real-time thinking & debug information display
 -  Knowledge base source visualization
@@ -27,8 +33,11 @@ This project supports two methods for AWS credential management:
 
 1. AWS Profile: If you don't provide a `.env` file, the application will attempt to use the AWS credentials configured in your system's default profile.
 
-2. Environment Variables: Create a `.env` file in the project root and add your AWS access key, secret key, and preferred region:
-```AWS_ACCESS_KEY_ID=your_access_key AWS_SECRET_ACCESS_KEY=your_secret_key AWS_DEFAULT_REGION=your_preferred_region```
+2. Environment Variables: Create a `.env` file in the project root and add your AWS access key, secret key:
+```
+AWS_ACCESS_KEY_ID=your_access_key 
+AWS_SECRET_ACCESS_KEY=your_secret_key
+```
 
 ## How to Get Your Keys
 

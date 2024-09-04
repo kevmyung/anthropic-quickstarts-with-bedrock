@@ -3,10 +3,10 @@
 This repository is a fork of Anthropic Quickstarts, modified to use AWS Bedrock instead of the Anthropic API. Each quickstart provides a foundation that you can easily build upon and customize for your specific needs.
 
 ### Key modifications include:
-- Replacing Anthropic API calls with AWS Bedrock API calls
-- Adding AWS region selection functionality
-- Implementing AWS credential management using .env files or server environment profiles
-- Dynamically populating Knowledge Base options using ListKnowledgeBases API call and displaying them in a dropdown menu
+- **Replacing Anthropic API calls with AWS Bedrock API calls**
+- **Adding AWS region selection functionality**
+- **Implementing AWS credential management using .env files or server profiles**
+- **List the available KnowledgeBase using API call (ListKnowledgeBases) and displaying them in a dropdown menu**
 
 ## Getting Started
 
@@ -35,13 +35,16 @@ Each quickstart project comes with its own README and setup instructions. Genera
 This project supports two methods for AWS credential management:
 
 1. Environment Variables: Create a `.env` file in the project root and add your AWS access key, secret key, and preferred region:
-```AWS_ACCESS_KEY_ID=your_access_key AWS_SECRET_ACCESS_KEY=your_secret_key AWS_DEFAULT_REGION=your_preferred_region```
+```
+AWS_ACCESS_KEY_ID=your_access_key 
+AWS_SECRET_ACCESS_KEY=your_secret_key
+```
 
 2. AWS CLI Profile: If you don't provide a `.env` file, the application will attempt to use the AWS credentials configured in your system's default profile.
 
 ## Region Selection
 
-This fork includes functionality to select the AWS region for Bedrock API calls. You can specify your preferred region in the `.env` file or through the application interface.
+This fork includes functionality to select the AWS region for Bedrock API calls. You can specify your preferred region through the application interface.
 
 ## Explore Further
 
