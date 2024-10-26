@@ -2,9 +2,15 @@
 
 This repository is a fork of Anthropic Quickstarts, modified to use AWS Bedrock instead of the Anthropic API. The core structure and functionality remain similar to the original Anthropic quickstarts, but we've adapted the API calls to work with AWS Bedrock.
 
+### Key modifications include:
+- **Replacing Anthropic API calls with AWS Bedrock API calls**
+- **Adding AWS region selection functionality**
+- **Implementing AWS credential management using .env files or server profiles**
+- **List the available KnowledgeBase using API call (ListKnowledgeBases) and displaying them in a dropdown menu**
+
 ## Key Features
 
--  AI-powered chat using Anthropic's Claude model
+-  AI-powered chat using Claude model on Amazon Bedrock
 -  Amazong Bedrock integration for contextual knowledge retrieval
 -  Real-time thinking & debug information display
 -  Knowledge base source visualization
@@ -27,36 +33,15 @@ This project supports two methods for AWS credential management:
 
 1. AWS Profile: If you don't provide a `.env` file, the application will attempt to use the AWS credentials configured in your system's default profile.
 
-2. Environment Variables: Create a `.env` file in the project root and add your AWS access key, secret key, and preferred region:
-```AWS_ACCESS_KEY_ID=your_access_key AWS_SECRET_ACCESS_KEY=your_secret_key AWS_DEFAULT_REGION=your_preferred_region```
-
-## How to Get Your Keys
-
-### AWS Access Key and Secret Key (if you choose option 2 in AWS Credential Setup)
-
-Follow these steps to obtain your AWS credentials:
-
-1. Log in to the AWS Management Console
-2. Navigate to the IAM (Identity and Access Management) dashboard
-3. In the left sidebar, click on "Users"
-4. Click "Create user" and follow the prompts to create a new user
-   ![Add User](/tutorial/create-user.png)
-5. On the Set Permission page, select the "Attach policies directly" policy
-   ![Attach Policy](/tutorial/aws-attach-policy.png)
-6. On the permissions page, use the "AmazonBedrockFullAccess" policy
-   ![Attach Policy](/tutorial/bedrock.png)
-7. Review and create the user
-8. On the Summary page, click on Create access key
-9. Then select "Application running on an AWS compute service". Add a description if desired, then click "Create"
-10. You will now see the Access Key ID and Secret Access Key displayed. Note that these keys are only visible once during creation, so be sure to save them securely
-    ![Access Keys](/tutorial/access-keys.png)
-11. Copy these keys and paste them into your `.env.local` file
-
-Note: Make sure to keep your keys secure and never share them publicly.
+2. Environment Variables: Create a `.env` file in the project root and add your AWS access key, secret key:
+```
+AWS_ACCESS_KEY_ID=your_access_key 
+AWS_SECRET_ACCESS_KEY=your_secret_key
+```
 
 ##  AWS Bedrock RAG Integration
 
-This project utilizes AWS Bedrock for Retrieval-Augmented Generation (RAG). To set up:
+This project utilizes Amazon Bedrock for Retrieval-Augmented Generation (RAG). To set up:
 
 1. Ensure you have an AWS account with Bedrock access.
 2. Create a Bedrock knowledge base in your desired AWS region.
