@@ -1,6 +1,6 @@
 // app/finance/page.tsx
 "use client";
-
+import { v4 as uuidv4 } from "uuid";
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import {
@@ -70,11 +70,10 @@ interface FileUpload {
 }
 
 const models: Model[] = [
-  { id: "claude-3-haiku-20240307", name: "Claude 3 Haiku" },
-  { id: "claude-3-5-sonnet-20240620", name: "Claude 3.5 Sonnet" },
+  { id: "anthropic.claude-3-haiku-20240307-v1:0", name: "Claude 3 Haiku" },
+  { id: "anthropic.claude-3-5-sonnet-20240620-v1:0", name: "Claude 3.5 Sonnet" },
 ];
 
-// Updated APIResponse interface
 interface APIResponse {
   content: string;
   hasToolUse: boolean;
@@ -111,7 +110,6 @@ const SafeChartRenderer: React.FC<{ data: ChartData }> = ({ data }) => {
 };
 
 const MessageComponent: React.FC<MessageComponentProps> = ({ message }) => {
-  console.log("Message with chart data:", message); // Add this line for debugging
   return (
     <div className="flex items-start gap-2">
       {message.role === "assistant" && (
@@ -198,7 +196,7 @@ export default function AIChat() {
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [selectedModel, setSelectedModel] = useState(
-    "claude-3-5-sonnet-20240620",
+    "anthropic.claude-3-5-sonnet-20240620-v1:0",
   );
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const chartEndRef = useRef<HTMLDivElement>(null);
@@ -208,6 +206,16 @@ export default function AIChat() {
   const [currentChartIndex, setCurrentChartIndex] = useState(0);
   const contentRef = useRef<HTMLDivElement>(null);
   const [isScrollLocked, setIsScrollLocked] = useState(false);
+
+  const regions = [
+    { id: "us-east-1", name: "US East (N. Virginia)" },
+    { id: "us-west-2", name: "US West (Oregon)" },
+    { id: "ap-northeast-1", name: "Asia (Tokyo)" },
+    { id: "eu-central-1", name: "Europe (Frankfurt)" },
+  ];
+  
+  const [selectedRegion, setSelectedRegion] = useState("us-west-2");
+  
 
   useEffect(() => {
     const scrollToBottom = () => {
@@ -375,14 +383,14 @@ export default function AIChat() {
     setIsScrollLocked(true);
 
     const userMessage: Message = {
-      id: crypto.randomUUID(),
+      id: uuidv4(),
       role: "user",
       content: input,
       file: currentUpload || undefined,
     };
 
     const thinkingMessage: Message = {
-      id: crypto.randomUUID(),
+      id: uuidv4(),
       role: "assistant",
       content: "thinking",
     };
@@ -433,6 +441,7 @@ export default function AIChat() {
     const requestBody = {
       messages: apiMessages,
       model: selectedModel,
+      region: selectedRegion,
     };
 
     try {
@@ -453,7 +462,7 @@ export default function AIChat() {
       setMessages((prev) => {
         const newMessages = [...prev];
         newMessages[newMessages.length - 1] = {
-          id: crypto.randomUUID(),
+          id: uuidv4(),
           role: "assistant",
           content: data.content,
           hasToolUse: data.hasToolUse || !!data.toolUse,
@@ -469,7 +478,7 @@ export default function AIChat() {
       setMessages((prev) => {
         const newMessages = [...prev];
         newMessages[newMessages.length - 1] = {
-          id: crypto.randomUUID(),
+          id: uuidv4(),
           role: "assistant",
           content: "I apologize, but I encountered an error. Please try again.",
         };
@@ -526,28 +535,47 @@ export default function AIChat() {
         {/* Chat Sidebar */}
         <Card className="w-1/3 flex flex-col h-full">
           <CardHeader className="py-3 px-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-3">
-                {messages.length > 0 && (
-                  <>
-                    <Avatar className="w-8 h-8 border">
-                      <AvatarImage
-                        src="/ant-logo.svg"
-                        alt="AI Assistant Avatar"
-                      />
-                      <AvatarFallback>AI</AvatarFallback>
-                    </Avatar>
-                    <div>
-                      <CardTitle className="text-lg">
-                        Financial Assistant
-                      </CardTitle>
-                      <CardDescription className="text-xs">
-                        Powered by Claude
-                      </CardDescription>
-                    </div>
-                  </>
-                )}
-              </div>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-3">
+              {messages.length > 0 && (
+                <>
+                  <Avatar className="w-8 h-8 border">
+                    <AvatarImage
+                      src="/ant-logo.svg"
+                      alt="AI Assistant Avatar"
+                    />
+                    <AvatarFallback>AI</AvatarFallback>
+                  </Avatar>
+                  <div>
+                    <CardTitle className="text-lg">
+                      Financial Assistant
+                    </CardTitle>
+                    <CardDescription className="text-xs">
+                      Powered by Claude
+                    </CardDescription>
+                  </div>
+                </>
+              )}
+            </div>
+            <div className="flex items-center space-x-2">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" className="h-8 text-sm">
+                    {regions.find((r) => r.id === selectedRegion)?.name}
+                    <ChevronDown className="ml-2 h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent>
+                  {regions.map((region) => (
+                    <DropdownMenuItem
+                      key={region.id}
+                      onSelect={() => setSelectedRegion(region.id)}
+                    >
+                      {region.name}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
 
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -568,6 +596,7 @@ export default function AIChat() {
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
+          </div>
           </CardHeader>
 
           <CardContent className="flex-1 overflow-y-auto p-4 scroll-smooth snap-y snap-mandatory">

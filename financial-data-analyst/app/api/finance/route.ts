@@ -1,17 +1,15 @@
 // app/api/finance/route.ts
 import { NextRequest } from "next/server";
-import Anthropic from "@anthropic-ai/sdk";
+import { ConverseCommand, BedrockRuntimeServiceException } from "@aws-sdk/client-bedrock-runtime";
+import { createBedrockClient } from "@/app/lib/utils";
 import type { ChartData } from "@/types/chart";
 
-// Initialize Anthropic client with correct headers
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY!,
-});
+const region = "us-west-2"
 
-export const runtime = "edge";
+interface ChartToolResponse extends ChartData {
+}
 
-// Helper to validate base64
-const isValidBase64 = (str: string) => {
+const isValidBase64 = (str: string): boolean => {
   try {
     return btoa(atob(str)) === str;
   } catch (err) {
@@ -19,207 +17,79 @@ const isValidBase64 = (str: string) => {
   }
 };
 
-// Add Type Definitions
-interface ChartToolResponse extends ChartData {
-  // Any additional properties specific to the tool response
-}
+const processFileContent = (fileData: any) => {
+  if (!fileData) {
+    console.log("No file data provided");
+    return null;
+  }
 
-interface ToolSchema {
-  name: string;
-  description: string;
-  input_schema: {
-    type: "object";
-    properties: Record<string, unknown>;
-    required: string[];
-  };
-}
+  const { base64, mediaType, isText, fileName } = fileData;
 
-const tools: ToolSchema[] = [
-  {
-    name: "generate_graph_data",
-    description:
-      "Generate structured JSON data for creating financial charts and graphs.",
-    input_schema: {
-      type: "object" as const,
-      properties: {
-        chartType: {
-          type: "string" as const,
-          enum: [
-            "bar",
-            "multiBar",
-            "line",
-            "pie",
-            "area",
-            "stackedArea",
-          ] as const,
-          description: "The type of chart to generate",
-        },
-        config: {
-          type: "object" as const,
-          properties: {
-            title: { type: "string" as const },
-            description: { type: "string" as const },
-            trend: {
-              type: "object" as const,
-              properties: {
-                percentage: { type: "number" as const },
-                direction: {
-                  type: "string" as const,
-                  enum: ["up", "down"] as const,
-                },
-              },
-              required: ["percentage", "direction"],
-            },
-            footer: { type: "string" as const },
-            totalLabel: { type: "string" as const },
-            xAxisKey: { type: "string" as const },
-          },
-          required: ["title", "description"],
-        },
-        data: {
-          type: "array" as const,
-          items: {
-            type: "object" as const,
-            additionalProperties: true, // Allow any structure
-          },
-        },
-        chartConfig: {
-          type: "object" as const,
-          additionalProperties: {
-            type: "object" as const,
-            properties: {
-              label: { type: "string" as const },
-              stacked: { type: "boolean" as const },
-            },
-            required: ["label"],
-          },
-        },
-      },
-      required: ["chartType", "config", "data", "chartConfig"],
-    },
-  },
-];
+  console.log("Processing file:", {
+    fileName,
+    mediaType,
+    isText,
+    base64Length: base64?.length,
+  });
 
-export async function POST(req: NextRequest) {
+  if (!base64) {
+    console.error("No base64 data received");
+    return null;
+  }
+
   try {
-    const { messages, fileData, model } = await req.json();
-
-    console.log("🔍 Initial Request Data:", {
-      hasMessages: !!messages,
-      messageCount: messages?.length,
-      hasFileData: !!fileData,
-      fileType: fileData?.mediaType,
-      model,
-    });
-
-    // Input validation
-    if (!messages || !Array.isArray(messages)) {
-      return new Response(
-        JSON.stringify({ error: "Messages array is required" }),
-        { status: 400 },
-      );
+    if (isText) {
+      const textContent = decodeURIComponent(escape(atob(base64)));
+      console.log("Processed text file successfully");
+      return {
+        text: `File contents of ${fileName}:\n\n${textContent}`
+      };
     }
 
-    if (!model) {
-      return new Response(
-        JSON.stringify({ error: "Model selection is required" }),
-        { status: 400 },
-      );
-    }
+    if (mediaType.startsWith('image/')) {
+      console.log("Processing image file...");
+      const format = mediaType.split('/')[1];
 
-    // Convert all previous messages
-    let anthropicMessages = messages.map((msg: any) => ({
-      role: msg.role,
-      content: msg.content,
-    }));
-
-    // Handle file in the latest message
-    if (fileData) {
-      const { base64, mediaType, isText } = fileData;
-
-      if (!base64) {
-        console.error("❌ No base64 data received");
-        return new Response(JSON.stringify({ error: "No file data" }), {
-          status: 400,
-        });
+      if (!['png', 'jpeg', 'gif', 'webp'].includes(format)) {
+        console.error("Unsupported image format:", format);
+        return null;
       }
 
-      try {
-        if (isText) {
-          // Decode base64 text content
-          const textContent = decodeURIComponent(escape(atob(base64)));
+      if (!isValidBase64(base64)) {
+        console.error("Invalid base64 data for image");
+        return null;
+      }
 
-          // Replace only the last message with the file content
-          anthropicMessages[anthropicMessages.length - 1] = {
-            role: "user",
-            content: [
-              {
-                type: "text",
-                text: `File contents of ${fileData.fileName}:\n\n${textContent}`,
-              },
-              {
-                type: "text",
-                text: messages[messages.length - 1].content,
-              },
-            ],
-          };
-        } else if (mediaType.startsWith("image/")) {
-          // Handle image files
-          anthropicMessages[anthropicMessages.length - 1] = {
-            role: "user",
-            content: [
-              {
-                type: "image",
-                source: {
-                  type: "base64",
-                  media_type: mediaType,
-                  data: base64,
-                },
-              },
-              {
-                type: "text",
-                text: messages[messages.length - 1].content,
-              },
-            ],
-          };
+      const imageData = Buffer.from(base64, 'base64');
+      console.log("Image data size:", imageData.length, "bytes");
+
+      return {
+        image: {
+          format: format as "png" | "jpeg" | "gif" | "webp",
+          source: {
+            bytes: imageData
+          }
         }
-      } catch (error) {
-        console.error("Error processing file content:", error);
-        return new Response(
-          JSON.stringify({ error: "Failed to process file content" }),
-          { status: 400 },
-        );
-      }
+      };
     }
 
-    console.log("🚀 Final Anthropic API Request:", {
-      endpoint: "messages.create",
-      model,
-      max_tokens: 4096,
-      temperature: 0.7,
-      messageCount: anthropicMessages.length,
-      tools: tools.map((t) => t.name),
-      messageStructure: JSON.stringify(
-        anthropicMessages.map((msg) => ({
-          role: msg.role,
-          content:
-            typeof msg.content === "string"
-              ? msg.content.slice(0, 50) + "..."
-              : "[Complex Content]",
-        })),
-        null,
-        2,
-      ),
-    });
+    console.warn("Unsupported file type:", mediaType);
+    return null;
 
-    const response = await anthropic.messages.create({
-      model,
-      max_tokens: 4096,
-      temperature: 0.7,
-      tools: tools,
-      tool_choice: { type: "auto" },
-      messages: anthropicMessages,
-      system: `You are a financial data visualization expert. Your role is to analyze financial data and create clear, meaningful visualizations using generate_graph_data tool:
+  } catch (error) {
+    console.error("Error in processFileContent:", error);
+    if (error instanceof Error) {
+      console.error("Error details:", {
+        name: error.name,
+        message: error.message,
+        stack: error.stack
+      });
+    }
+    return null;
+  }
+};
+
+const systemPrompt = `You are a financial data visualization expert. Your role is to analyze financial data and create clear, meaningful visualizations using generate_graph_data tool:
 
 Here are the chart types available and their ideal use cases:
 
@@ -326,140 +196,278 @@ Never:
 - Include technical implementation details in responses
 - NEVER SAY you are using the generate_graph_data tool, just execute it when needed.
 
-Focus on clear financial insights and let the visualization enhance understanding.`,
+Focus on clear financial insights and let the visualization enhance understanding.` 
+
+
+const tools = [{
+  toolSpec: {
+    name: "generate_graph_data",
+    description: "Generate structured JSON data for creating financial charts and graphs.",
+    inputSchema: {
+      json: {
+        type: "object",
+        properties: {
+          chartType: {
+            type: "string",
+            enum: ["bar", "multiBar", "line", "pie", "area", "stackedArea"]
+          },
+          config: {
+            type: "object",
+            properties: {
+              title: { type: "string" },
+              description: { type: "string" },
+              trend: {
+                type: "object",
+                properties: {
+                  percentage: { type: "number" },
+                  direction: { type: "string", enum: ["up", "down"] }
+                }
+              },
+              footer: { type: "string" },
+              totalLabel: { type: "string" },
+              xAxisKey: { type: "string" }
+            },
+            required: ["title", "description"]
+          },
+          data: {
+            type: "array",
+            items: { type: "object" }
+          },
+          chartConfig: {
+            type: "object",
+            additionalProperties: {
+              type: "object",
+              properties: {
+                label: { type: "string" },
+                stacked: { type: "boolean" }
+              }
+            }
+          }
+        },
+        required: ["chartType", "config", "data", "chartConfig"]
+      }
+    }
+  }
+}];
+
+export async function POST(req: NextRequest) {
+  try {
+    const { messages, fileData, model, region } = await req.json();
+
+    console.log("🔍 Initial Request Data:", {
+      hasMessages: !!messages,
+      messageCount: messages?.length,
+      hasFileData: !!fileData,
+      fileType: fileData?.mediaType,
+      model,
+      region,
     });
 
-    console.log("✅ Anthropic API Response received:", {
-      status: "success",
-      stopReason: response.stop_reason,
-      hasToolUse: response.content.some((c) => c.type === "tool_use"),
-      contentTypes: response.content.map((c) => c.type),
-      contentLength:
-        response.content[0].type === "text"
-          ? response.content[0].text.length
-          : 0,
-      toolOutput: response.content.find((c) => c.type === "tool_use")
-        ? JSON.stringify(
-            response.content.find((c) => c.type === "tool_use"),
-            null,
-            2,
-          )
-        : "No tool used",
+    // Input validation
+    if (!messages || !Array.isArray(messages)) {
+      return new Response(
+        JSON.stringify({ error: "Messages array is required" }),
+        { status: 400 }
+      );
+    }
+
+    if (!model) {
+      return new Response(
+        JSON.stringify({ error: "Model selection is required" }),
+        { status: 400 }
+      );
+    }
+
+    if (!region) {
+      return new Response(
+        JSON.stringify({ error: "Region selection is required" }),
+        { status: 400 }
+      );
+    }
+
+    const bedrockClient = createBedrockClient(region);
+
+    // Convert messages to Bedrock format
+    const bedrockMessages = messages.map((msg: any) => {
+      let messageContent: any[] = [];
+    
+      if (msg.content) {
+        if (Array.isArray(msg.content)) {
+          msg.content.forEach((content: any) => {
+            if (content.type === 'text') {
+              messageContent.push({ text: content.text });
+            } else if (content.type === 'image') {
+              messageContent.push({
+                image: {
+                  format: content.source.media_type.split('/')[1] as "png" | "jpeg" | "gif" | "webp",
+                  source: {
+                    bytes: Buffer.from(content.source.data, 'base64')
+                  }
+                }
+              });
+            }
+          });
+        } 
+        else if (typeof msg.content === 'string') {
+          messageContent.push({ text: msg.content });
+        }
+      }
+    
+      if (msg === messages[messages.length - 1] && fileData) {
+        const fileContent = processFileContent(fileData);
+        if (fileContent) {
+          messageContent.push(fileContent);
+        }
+      }
+    
+      const result = {
+        role: msg.role === 'assistant' ? 'assistant' : 'user',
+        content: messageContent
+      };
+    
+      console.log("Processed message:", JSON.stringify(result, null, 2));
+      return result;
+    });
+    
+
+    const command = new ConverseCommand({
+      modelId: model,
+      messages: bedrockMessages,
+      system: [{ text: systemPrompt }],
+      inferenceConfig: {
+        maxTokens: 4096,
+        temperature: 0.7,
+        topP: 0.9,
+      },
+      toolConfig: {
+        tools: tools,
+        toolChoice: { auto: {} }
+      }
     });
 
-    const toolUseContent = response.content.find((c) => c.type === "tool_use");
-    const textContent = response.content.find((c) => c.type === "text");
+    console.log("Final API request:", JSON.stringify({
+      modelId: model,
+      messages: bedrockMessages.map(msg => ({
+        ...msg,
+        content: msg.content.map(c => 
+          'image' in c ? { ...c, image: { ...c.image, source: { bytes: '[BINARY]' } }} : c
+        )
+      })),
+      system: [{ text: systemPrompt }]
+    }, null, 2));
+    
+    const response = await bedrockClient.send(command);
+    console.log("📊 Raw Bedrock Response:", JSON.stringify(response, null, 2));
+
+    if (!response.output?.message?.content) {
+      throw new Error("Invalid response from Bedrock API");
+    }
+
+    const textContent = response.output.message.content.find(c => 'text' in c);
+    const toolUseContent = response.output.message.content.find(c => 'toolUse' in c);
 
     const processToolResponse = (toolUseContent: any) => {
-      if (!toolUseContent) return null;
+      try {
+        if (!toolUseContent || !toolUseContent.toolUse || !toolUseContent.toolUse.input) {
+          console.log("No valid tool use content found");
+          return null;
+        }
 
-      const chartData = toolUseContent.input as ChartToolResponse;
+        // Get the tool input from the response
+        const toolInput = toolUseContent.toolUse.input;
+        console.log("Tool Input:", toolInput);
 
-      if (
-        !chartData.chartType ||
-        !chartData.data ||
-        !Array.isArray(chartData.data)
-      ) {
-        throw new Error("Invalid chart data structure");
+        const chartData = typeof toolInput === 'string' ? JSON.parse(toolInput) : toolInput;
+
+        if (!chartData.chartType || !chartData.data || !Array.isArray(chartData.data)) {
+          throw new Error("Invalid chart data structure");
+        }
+
+        // Transform data for pie charts
+        if (chartData.chartType === "pie") {
+          chartData.data = chartData.data.map((item) => {
+            const valueKey = Object.keys(chartData.chartConfig)[0];
+            const segmentKey = chartData.config.xAxisKey || "segment";
+
+            return {
+              segment: item[segmentKey] || item.segment || item.category || item.name,
+              value: item[valueKey] || item.value,
+            };
+          });
+
+          chartData.config.xAxisKey = "segment";
+        }
+
+        // Process chart config with colors
+        const processedChartConfig = Object.entries(chartData.chartConfig).reduce(
+          (acc, [key, config], index) => ({
+            ...acc,
+            [key]: {
+              ...config,
+              color: `hsl(var(--chart-${index + 1}))`,
+            },
+          }),
+          {}
+        );
+
+        return {
+          ...chartData,
+          chartConfig: processedChartConfig,
+        };
+      } catch (error) {
+        console.error("Error processing tool response:", error);
+        return null;
       }
-
-      // Transform data for pie charts to match expected structure
-      if (chartData.chartType === "pie") {
-        // Ensure data items have 'segment' and 'value' keys
-        chartData.data = chartData.data.map((item) => {
-          // Find the first key in chartConfig (e.g., 'sales')
-          const valueKey = Object.keys(chartData.chartConfig)[0];
-          const segmentKey = chartData.config.xAxisKey || "segment";
-
-          return {
-            segment:
-              item[segmentKey] || item.segment || item.category || item.name,
-            value: item[valueKey] || item.value,
-          };
-        });
-
-        // Ensure xAxisKey is set to 'segment' for consistency
-        chartData.config.xAxisKey = "segment";
-      }
-
-      // Create new chartConfig with system color variables
-      const processedChartConfig = Object.entries(chartData.chartConfig).reduce(
-        (acc, [key, config], index) => ({
-          ...acc,
-          [key]: {
-            ...config,
-            // Assign color variables sequentially
-            color: `hsl(var(--chart-${index + 1}))`,
-          },
-        }),
-        {},
-      );
-
-      return {
-        ...chartData,
-        chartConfig: processedChartConfig,
-      };
     };
 
-    const processedChartData = toolUseContent
-      ? processToolResponse(toolUseContent)
-      : null;
+    const processedChartData = toolUseContent ? processToolResponse(toolUseContent) : null;
+    console.log("📊 Processed Chart Data:", processedChartData);
 
     return new Response(
       JSON.stringify({
         content: textContent?.text || "",
-        hasToolUse: response.content.some((c) => c.type === "tool_use"),
-        toolUse: toolUseContent,
-        chartData: processedChartData,
+        hasToolUse: !!toolUseContent,
+        toolUse: toolUseContent?.toolUse || null,
+        chartData: processedChartData
       }),
       {
         headers: {
           "Content-Type": "application/json",
-          "Cache-Control": "no-cache",
-        },
-      },
+          "Cache-Control": "no-cache"
+        }
+      }
     );
+
   } catch (error) {
     console.error("❌ Finance API Error: ", error);
     console.error("Full error details:", {
       name: error instanceof Error ? error.name : "Unknown",
       message: error instanceof Error ? error.message : "Unknown error",
       stack: error instanceof Error ? error.stack : undefined,
-      headers: error instanceof Error ? (error as any).headers : undefined,
-      response: error instanceof Error ? (error as any).response : undefined,
     });
 
-    // Add specific error handling for different scenarios
-    if (error instanceof Anthropic.APIError) {
+    if (error instanceof BedrockRuntimeServiceException) {
       return new Response(
         JSON.stringify({
-          error: "API Error",
+          error: "AWS Service Error",
           details: error.message,
-          code: error.status,
+          code: error.$metadata.httpStatusCode
         }),
-        { status: error.status },
-      );
-    }
-
-    if (error instanceof Anthropic.AuthenticationError) {
-      return new Response(
-        JSON.stringify({
-          error: "Authentication Error",
-          details: "Invalid API key or authentication failed",
-        }),
-        { status: 401 },
+        { 
+          status: error.$metadata.httpStatusCode || 500,
+          headers: { "Content-Type": "application/json" }
+        }
       );
     }
 
     return new Response(
       JSON.stringify({
-        error:
-          error instanceof Error ? error.message : "An unknown error occurred",
+        error: error instanceof Error ? error.message : "An unknown error occurred",
       }),
       {
         status: 500,
         headers: { "Content-Type": "application/json" },
-      },
+      }
     );
   }
 }

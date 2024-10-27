@@ -636,7 +636,7 @@ function ChatArea() {
           regions={regions}
         />
 
-        {/* 메시지 UI 렌더링 */}
+        {/* message UI renderer */}
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
           {messages.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full animate-fade-in-up">
