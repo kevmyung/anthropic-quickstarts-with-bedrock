@@ -1,10 +1,9 @@
 // app/api/finance/route.ts
 import { NextRequest } from "next/server";
 import { ConverseCommand, BedrockRuntimeServiceException } from "@aws-sdk/client-bedrock-runtime";
+ // Start of Selection
 import { createBedrockClient } from "@/app/lib/utils";
 import type { ChartData } from "@/types/chart";
-
-const region = "us-west-2"
 
 interface ChartToolResponse extends ChartData {
 }
@@ -286,10 +285,19 @@ export async function POST(req: NextRequest) {
     }
 
     const bedrockClient = createBedrockClient(region);
+    
+    type ConversationRole = 'system' | 'user' | 'assistant';
+    interface BedrockMessage {
+      role: ConversationRole;
+      content: Array<
+        | { text: string }
+        | { image: { format: 'png' | 'jpeg' | 'gif' | 'webp'; source: { bytes: Buffer } } }
+      >;
+    }
 
     // Convert messages to Bedrock format
     const bedrockMessages = messages.map((msg: any) => {
-      let messageContent: any[] = [];
+      let messageContent: BedrockMessage['content'] = [];
     
       if (msg.content) {
         if (Array.isArray(msg.content)) {
@@ -320,14 +328,11 @@ export async function POST(req: NextRequest) {
         }
       }
     
-      const result = {
-        role: msg.role === 'assistant' ? 'assistant' : 'user',
+      return {
+        role: msg.role === 'assistant' ? 'assistant' as ConversationRole : 'user' as ConversationRole,
         content: messageContent
       };
-    
-      console.log("Processed message:", JSON.stringify(result, null, 2));
-      return result;
-    });
+    }) as BedrockMessage[];
     
 
     const command = new ConverseCommand({
