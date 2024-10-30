@@ -30,8 +30,8 @@ A sophisticated Next.js application that combines Claude's capabilities with int
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/anthropics/anthropic-quickstarts.git
-cd anthropic-quickstarts/financial-data-analyst
+git clone https://github.com/anthropics/anthropic-quickstarts-with-bedrock.git
+cd anthropic-quickstarts-with-bedrock/financial-data-analyst
 ```
 
 2. Install dependencies:
@@ -39,9 +39,15 @@ cd anthropic-quickstarts/financial-data-analyst
 npm install
 ```
 
-3. Create a `.env.local` file in the root directory:
+3-1. Set a default AWS profile
+```bash
+aws configure
+```
+
+3-2. (Optional) Create a `.env.local` file in the root directory:
 ```env
-ANTHROPIC_API_KEY=your_api_key_here
+BAWS_ACCESS_KEY_ID=your_api_key_here
+BAWS_SECRET_ACCESS_KEY=your_api_scret_key_here
 ```
 
 4. Run the development server:
