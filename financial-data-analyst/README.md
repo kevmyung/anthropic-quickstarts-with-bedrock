@@ -30,7 +30,7 @@ A sophisticated Next.js application that combines Claude's capabilities with int
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/anthropics/anthropic-quickstarts-with-bedrock.git
+git clone https://github.com/kevmyung/anthropic-quickstarts-with-bedrock.git
 cd anthropic-quickstarts-with-bedrock/financial-data-analyst
 ```
 
