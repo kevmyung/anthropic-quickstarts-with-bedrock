@@ -1,6 +1,9 @@
 #!/bin/bash
 set -e
 
+pip install -U boto3>=1.35.51
+pip show boto3
+
 ./start_all.sh
 ./novnc_startup.sh
 

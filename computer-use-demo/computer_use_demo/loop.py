@@ -1,51 +1,20 @@
 """
 Agentic sampling loop that calls the Anthropic API and local implementation of anthropic-defined computer use tools.
 """
-
+import boto3
 import platform
 from collections.abc import Callable
 from datetime import datetime
 from enum import StrEnum
-from typing import Any, cast
-
+from typing import Any, Callable, List, Dict, Union
+import streamlit as st
 import httpx
-from anthropic import (
-    Anthropic,
-    AnthropicBedrock,
-    AnthropicVertex,
-    APIError,
-    APIResponseValidationError,
-    APIStatusError,
-)
-from anthropic.types.beta import (
-    BetaCacheControlEphemeralParam,
-    BetaContentBlockParam,
-    BetaImageBlockParam,
-    BetaMessage,
-    BetaMessageParam,
-    BetaTextBlock,
-    BetaTextBlockParam,
-    BetaToolResultBlockParam,
-    BetaToolUseBlockParam,
-)
+import ast
 
 from .tools import BashTool, ComputerTool, EditTool, ToolCollection, ToolResult
 
 COMPUTER_USE_BETA_FLAG = "computer-use-2024-10-22"
-PROMPT_CACHING_BETA_FLAG = "prompt-caching-2024-07-31"
-
-
-class APIProvider(StrEnum):
-    ANTHROPIC = "anthropic"
-    BEDROCK = "bedrock"
-    VERTEX = "vertex"
-
-
-PROVIDER_TO_DEFAULT_MODEL_NAME: dict[APIProvider, str] = {
-    APIProvider.ANTHROPIC: "claude-3-5-sonnet-20241022",
-    APIProvider.BEDROCK: "anthropic.claude-3-5-sonnet-20241022-v2:0",
-    APIProvider.VERTEX: "claude-3-5-sonnet-v2@20241022",
-}
+# PROMPT_CACHING_BETA_FLAG = "prompt-caching-2024-07-31"
 
 
 # This system prompt is optimized for the Docker environment in this repository and
@@ -69,116 +38,197 @@ SYSTEM_PROMPT = f"""<SYSTEM_CAPABILITY>
 * If the item you are looking at is a pdf, if after taking a single screenshot of the pdf it seems that you want to read the entire document instead of trying to continue to read the pdf from your screenshots + navigation, determine the URL, use curl to download the pdf, install and use pdftotext to convert it to a text file, and then read that text file directly with your StrReplaceEditTool.
 </IMPORTANT>"""
 
-
 async def sampling_loop(
     *,
     model: str,
-    provider: APIProvider,
     system_prompt_suffix: str,
-    messages: list[BetaMessageParam],
-    output_callback: Callable[[BetaContentBlockParam], None],
-    tool_output_callback: Callable[[ToolResult, str], None],
-    api_response_callback: Callable[
-        [httpx.Request, httpx.Response | object | None, Exception | None], None
-    ],
-    api_key: str,
+    messages: List[Dict[str, Any]],
+    output_callback: Callable[[Dict[str, Any]], None],
+    tool_output_callback: Callable[[Any, str], None],
+    api_response_callback: Callable[[Any, Any, Exception | None], None],
     only_n_most_recent_images: int | None = None,
     max_tokens: int = 4096,
+    temperature: float = 0.7,
+    top_p: float = 1.0,
 ):
     """
     Agentic sampling loop for the assistant/tool interaction of computer use.
     """
+
+    bedrock_client = boto3.client('bedrock-runtime', region_name='us-west-2')
     tool_collection = ToolCollection(
         ComputerTool(),
         BashTool(),
         EditTool(),
     )
-    system = BetaTextBlockParam(
-        type="text",
-        text=f"{SYSTEM_PROMPT}{' ' + system_prompt_suffix if system_prompt_suffix else ''}",
-    )
+    system = f"{SYSTEM_PROMPT}{' ' + system_prompt_suffix if system_prompt_suffix else ''}"
 
-    while True:
-        enable_prompt_caching = False
-        betas = [COMPUTER_USE_BETA_FLAG]
-        image_truncation_threshold = 10
-        if provider == APIProvider.ANTHROPIC:
-            client = Anthropic(api_key=api_key)
-            enable_prompt_caching = True
-        elif provider == APIProvider.VERTEX:
-            client = AnthropicVertex()
-        elif provider == APIProvider.BEDROCK:
-            client = AnthropicBedrock()
 
-        if enable_prompt_caching:
-            betas.append(PROMPT_CACHING_BETA_FLAG)
-            _inject_prompt_caching(messages)
-            # Is it ever worth it to bust the cache with prompt caching?
-            image_truncation_threshold = 50
-            system["cache_control"] = {"type": "ephemeral"}
-
+    while True: 
         if only_n_most_recent_images:
             _maybe_filter_to_n_most_recent_images(
                 messages,
                 only_n_most_recent_images,
-                min_removal_threshold=image_truncation_threshold,
+                min_removal_threshold=10,
             )
 
-        # Call the API
-        # we use raw_response to provide debug information to streamlit. Your
-        # implementation may be able call the SDK directly with:
-        # `response = client.messages.create(...)` instead.
+        bedrock_messages = _prepare_bedrock_messages(messages)
+
         try:
-            raw_response = client.beta.messages.with_raw_response.create(
-                max_tokens=max_tokens,
-                messages=messages,
-                model=model,
-                system=[system],
-                tools=tool_collection.to_params(),
-                betas=betas,
+            response = bedrock_client.converse(
+                modelId=model,
+                messages=bedrock_messages,
+                system=[{"text": system}],
+                inferenceConfig={
+                    "maxTokens": max_tokens,
+                    "temperature": temperature,
+                    "topP": top_p,
+                },
+                additionalModelRequestFields={
+                    "tools": [
+                        {
+                            "type": "computer_20241022",
+                            "name": "computer",
+                            "display_height_px": 768,
+                            "display_width_px": 1024,
+                            "display_number": 0
+                        },
+                        {
+                            "type": "bash_20241022",
+                            "name": "bash",
+
+                        },
+                        {
+                            "type": "text_editor_20241022",
+                            "name": "str_replace_editor",
+                        }
+                    ],
+                    "anthropic_beta": ["computer-use-2024-10-22"]
+                },
+                toolConfig={
+                    'tools': [
+                        {
+                            'toolSpec': {
+                                'name': 'dummy_tool',
+                                "description": "Never use this tool.",
+                                'inputSchema': {
+                                    'json': {
+                                        'type': 'object'
+                                    }
+                                }
+                            }
+                        }
+                    ]
+                }
             )
-        except (APIStatusError, APIResponseValidationError) as e:
-            api_response_callback(e.request, e.response, e)
-            return messages
-        except APIError as e:
-            api_response_callback(e.request, e.body, e)
+        except Exception as e:
+            api_response_callback(bedrock_messages, None, e)
             return messages
 
-        api_response_callback(
-            raw_response.http_response.request, raw_response.http_response, None
-        )
+        api_response_callback(bedrock_messages, response, None)
 
-        response = raw_response.parse()
-
-        response_params = _response_to_params(response)
-        messages.append(
-            {
-                "role": "assistant",
-                "content": response_params,
-            }
-        )
-
-        tool_result_content: list[BetaToolResultBlockParam] = []
-        for content_block in response_params:
+        response_content = response['output']['message']['content']
+        messages.append({"role": "assistant", "content": response_content})
+        
+        tool_result_content = []
+        for content_block in response_content:
             output_callback(content_block)
-            if content_block["type"] == "tool_use":
+            if content_block.get("toolUse"):
                 result = await tool_collection.run(
-                    name=content_block["name"],
-                    tool_input=cast(dict[str, Any], content_block["input"]),
+                    name=content_block["toolUse"]["name"],
+                    tool_input=content_block["toolUse"]["input"],
                 )
-                tool_result_content.append(
-                    _make_api_tool_result(result, content_block["id"])
-                )
-                tool_output_callback(result, content_block["id"])
+                tool_result = _make_api_tool_result(result, content_block["toolUse"]["toolUseId"])
+                tool_result_content.append(tool_result)
+                tool_output_callback(result, content_block["toolUse"]["toolUseId"])
 
         if not tool_result_content:
             return messages
 
-        messages.append({"content": tool_result_content, "role": "user"})
+        messages.append({"role": "user", "content": tool_result_content})
+
+
+def _prepare_bedrock_messages(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    bedrock_messages = []
+    for msg in messages:
+        bedrock_msg = {"role": msg["role"], "content": []}
+        if isinstance(msg["content"], list):
+            for content in msg["content"]:
+                if isinstance(content, dict):
+                    if "toolResult" in content:
+                        tool_result = content["toolResult"]
+                        processed_content = _process_tool_result_content(tool_result["content"])
+                        bedrock_msg["content"].append({
+                            "toolResult": {
+                                "toolUseId": tool_result["toolUseId"],
+                                "content": processed_content,
+                                "status": tool_result.get("status", "success")
+                            }
+                        })
+                    elif "text" in content:
+                        bedrock_msg["content"].append({"text": content["text"]})
+                    elif "image" in content:
+                        image_data = content["image"]
+                        if isinstance(image_data, str) and image_data.startswith("data:image/"):
+                            _, base64_data = image_data.split(',', 1)
+                        elif isinstance(image_data, dict) and "source" in image_data:
+                            base64_data = image_data["source"].get("bytes")
+                        else:
+                            base64_data = base64.b64encode(image_data).decode('utf-8')
+
+                        bedrock_msg["content"].append({
+                            "image": {
+                                "format": 'png',
+                                "source": {"bytes": base64_data}
+                            }
+                        })       
+                    elif "toolUse" in content:
+                        bedrock_msg["content"].append({
+                            "toolUse": {
+                                "toolUseId": content["toolUse"]["toolUseId"],
+                                "name": content["toolUse"]["name"],
+                                "input": content["toolUse"]["input"]
+                            }
+                        })
+                    else:
+                        bedrock_msg["content"].append(content)
+                else:
+                    bedrock_msg["content"].append({"text": str(content)})
+        elif isinstance(msg["content"], str):
+            bedrock_msg["content"].append({"text": msg["content"]})
+
+        bedrock_messages.append(bedrock_msg)
+    return bedrock_messages
+
+
+def _process_image_bytes(image_bytes):
+    if isinstance(image_bytes, str):
+        if image_bytes.startswith("b'") or image_bytes.startswith('b"'):
+            return ast.literal_eval(image_bytes)
+        return image_bytes.encode('utf-8')
+    return image_bytes
+
+def _process_tool_result_content(content):
+    processed_content = []
+    for item in content:
+        if isinstance(item, dict):
+            if "json" in item:
+                processed_content.append({"text": json.dumps(item["json"])})
+            elif "text" in item:
+                processed_content.append({"text": item["text"]})
+            elif "base64_image" in item:
+                image_bytes = base64.b64decode(item["base64_image"])
+                processed_content.append({
+                    "image": {
+                        "format": 'png'|'jpeg', 
+                        "source": {"bytes": image_bytes}
+                    }
+                })
+    return processed_content
 
 
 def _maybe_filter_to_n_most_recent_images(
-    messages: list[BetaMessageParam],
+    messages: List[Dict[str, Any]],
     images_to_keep: int,
     min_removal_threshold: int,
 ):
@@ -191,17 +241,14 @@ def _maybe_filter_to_n_most_recent_images(
     if images_to_keep is None:
         return messages
 
-    tool_result_blocks = cast(
-        list[BetaToolResultBlockParam],
-        [
-            item
-            for message in messages
-            for item in (
-                message["content"] if isinstance(message["content"], list) else []
-            )
-            if isinstance(item, dict) and item.get("type") == "tool_result"
-        ],
-    )
+    tool_result_blocks = [
+        item
+        for message in messages
+        for item in (
+            message["content"] if isinstance(message["content"], list) else []
+        )
+        if isinstance(item, dict) and item.get("type") == "tool_result"
+    ]
 
     total_images = sum(
         1
@@ -227,78 +274,49 @@ def _maybe_filter_to_n_most_recent_images(
 
 
 def _response_to_params(
-    response: BetaMessage,
-) -> list[BetaTextBlockParam | BetaToolUseBlockParam]:
-    res: list[BetaTextBlockParam | BetaToolUseBlockParam] = []
-    for block in response.content:
-        if isinstance(block, BetaTextBlock):
-            res.append({"type": "text", "text": block.text})
-        else:
-            res.append(cast(BetaToolUseBlockParam, block.model_dump()))
+    response: Dict[str, Any]
+) -> List[Dict[str, Any]]:
+    res = []
+    for block in response.get("content", []):
+        if block["type"] == "text":
+            res.append({"type": "text", "text": block["text"]})
+        elif block["type"] == "tool_use":
+            res.append({
+                "type": "tool_use",
+                "id": block["id"],
+                "name": block["name"],
+                "input": block["input"]
+            })
     return res
 
 
-def _inject_prompt_caching(
-    messages: list[BetaMessageParam],
-):
-    """
-    Set cache breakpoints for the 3 most recent turns
-    one cache breakpoint is left for tools/system prompt, to be shared across sessions
-    """
-
-    breakpoints_remaining = 3
-    for message in reversed(messages):
-        if message["role"] == "user" and isinstance(
-            content := message["content"], list
-        ):
-            if breakpoints_remaining:
-                breakpoints_remaining -= 1
-                content[-1]["cache_control"] = BetaCacheControlEphemeralParam(
-                    {"type": "ephemeral"}
-                )
-            else:
-                content[-1].pop("cache_control", None)
-                # we'll only every have one extra turn per loop
-                break
-
-
-def _make_api_tool_result(
-    result: ToolResult, tool_use_id: str
-) -> BetaToolResultBlockParam:
-    """Convert an agent ToolResult to an API ToolResultBlockParam."""
-    tool_result_content: list[BetaTextBlockParam | BetaImageBlockParam] | str = []
-    is_error = False
+def _make_api_tool_result(result: Any, tool_use_id: str) -> Dict[str, Any]:
+    tool_result_content = []
+    status = "success"
     if result.error:
-        is_error = True
-        tool_result_content = _maybe_prepend_system_tool_result(result, result.error)
+        status = "error"
+        tool_result_content.append({"text": _maybe_prepend_system_tool_result(result, result.error)})
     else:
         if result.output:
-            tool_result_content.append(
-                {
-                    "type": "text",
-                    "text": _maybe_prepend_system_tool_result(result, result.output),
-                }
-            )
+            tool_result_content.append({"text": _maybe_prepend_system_tool_result(result, result.output)})
         if result.base64_image:
-            tool_result_content.append(
-                {
-                    "type": "image",
+            tool_result_content.append({
+                "image": {
+                    "format": "png",
                     "source": {
-                        "type": "base64",
-                        "media_type": "image/png",
-                        "data": result.base64_image,
-                    },
+                        "bytes": result.base64_image#.encode()
+                    }
                 }
-            )
+            })
     return {
-        "type": "tool_result",
-        "content": tool_result_content,
-        "tool_use_id": tool_use_id,
-        "is_error": is_error,
+        "toolResult": {
+            "toolUseId": tool_use_id,
+            "content": tool_result_content,
+            "status": status
+        }
     }
 
-
-def _maybe_prepend_system_tool_result(result: ToolResult, result_text: str):
+def _maybe_prepend_system_tool_result(result: Any, result_text: str):
     if result.system:
         result_text = f"<system>{result.system}</system>\n{result_text}"
     return result_text
